@@ -25,16 +25,28 @@ def get_token_counts(prompt_text):
 
 
 def main():
-    while True:
-        prompt_text = input("You: ")
-        if prompt_text.lower() in ["exit", "quit"]:
-            break
 
+    if len(sys.argv) > 1:
+        is_verbose = '--verbose' in sys.argv
+        filtered_args = [arg for arg in sys.argv[1:] if arg != '--verbose']
+        prompt_text = " ".join(filtered_args)
         output, prompt_tokens, response_tokens = get_token_counts(prompt_text)
-        print(f"Gemini: {output}")
-        print(f"(Prompt tokens: {prompt_tokens}, Response tokens: {response_tokens})\n")
-        #print(f"Prompt tokens: {prompt_tokens}")
-        #print(f"Response tokens: {response_tokens}")
+        if is_verbose:
+            print(f"User prompt: {prompt_text}")
+            print(f"Prompt tokens: {prompt_tokens}")
+            print(f"Response tokens: {response_tokens}")
+        else:
+            print(output)
+    else:
+        # Run in interactive mode
+        print("Interactive chat mode (type 'exit' to quit)\n")
+        while True:
+            prompt_text = input("You: ")
+            if prompt_text.lower() in ["exit", "quit"]:
+                break
+            output, prompt_tokens, response_tokens = get_token_counts(prompt_text)
+            print(f"Gemini: {output}")
+            print(f"(Prompt tokens: {prompt_tokens}, Response tokens: {response_tokens})\n")
 
 
 if __name__ == "__main__":
