@@ -1,5 +1,6 @@
 import os 
 import sys
+from config import system_prompt
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -16,7 +17,11 @@ messages = []
 def get_token_counts(prompt_text):
     messages.append(types.Content(role="user", parts=[types.Part(text=prompt_text)]))
     
-    response = client.models.generate_content(model=gen_model, contents=messages)
+    response = client.models.generate_content(
+            model=gen_model, 
+            contents=messages,
+            config=types.GenerateContentConfig(system_instruction=system_prompt)
+        )
     messages.append(response.candidates[0].content)
 
     prompt_tokens = response.usage_metadata.prompt_token_count
