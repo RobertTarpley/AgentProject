@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from google import genai
 from google.genai import types
 from functions.tools import available_functions
+from functions.call_function import call_function
 
 load_dotenv()
 api_key = os.environ.get("GEMINI_API_KEY")
@@ -20,7 +21,7 @@ config = types.GenerateContentConfig(
         system_instruction=system_prompt
         )
 
-def generate_agent_response(prompt_text):
+def generate_agent_response(prompt_text, verbose=False):
     messages.append(types.Content(role="user", parts=[types.Part(text=prompt_text)]))
 
     response = client.models.generate_content(
@@ -28,9 +29,26 @@ def generate_agent_response(prompt_text):
         contents=messages,
         config=config
     )
+    # this is the part to fix right?
     if response.candidates and response.candidates[0].content:
-        messages.append(response.candidates[0].content)
-    
+        candidate_content = response.candidates[0].content
+        function_call_part = candidate_content.parts[0].function_call
+
+        if function_call_part:
+            function_result = call_function(function_call_part, verbose=verbose)
+
+            try:
+                function_response = function_result.parts[0].function_response.response
+            except Exception:
+                raise RuntimeError("Function did not return a valid function_response.response")
+
+            if verbose:
+                print(f"-> {function_response}")
+
+            messages.append(function_result)
+        else:
+            messages.append(candidate_content)
+        
     return response
 
 def get_token_counts(response):
@@ -51,7 +69,18 @@ def main():
         output = response.text
         if response.function_calls:
             for function_call in response.function_calls:
-                print(f"Calling function: {function_call.name}({function_call.args})")
+             #   print(f"Calling function: {function_call.name}({function_call.args})")
+                function_result = call_function(function_call, verbose=is_verbose)
+
+                try:
+                    result_content = function_result.parts[0].function_response.response
+                except (AttributeError, IndexError):
+                    raise RuntimeError("Fatal: Expected function response is missing")
+
+                if is_verbose:
+                    print(f"-> {result_content}")
+                else:
+                    print(result_content)
 
         if is_verbose:
             print(f"User prompt: {prompt_text}")
