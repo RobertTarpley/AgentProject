@@ -4,108 +4,67 @@ from config import system_prompt
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
-from functions.tools import available_functions
-from functions.call_function import call_function
-
-load_dotenv()
-api_key = os.environ.get("GEMINI_API_KEY")
-
-client = genai.Client(api_key=api_key)
-
-gen_model = 'gemini-2.0-flash-001' 
-
-messages = []
-
-config = types.GenerateContentConfig(
-        tools=[available_functions],
-        system_instruction=system_prompt
-        )
-
-def generate_agent_response(prompt_text, verbose=False):
-    messages.append(types.Content(role="user", parts=[types.Part(text=prompt_text)]))
-
-    response = client.models.generate_content(
-        model=gen_model,
-        contents=messages,
-        config=config
-    )
-    # this is the part to fix right?
-    if response.candidates and response.candidates[0].content:
-        candidate_content = response.candidates[0].content
-        function_call_part = candidate_content.parts[0].function_call
-
-        if function_call_part:
-            function_result = call_function(function_call_part, verbose=verbose)
-
-            try:
-                function_response = function_result.parts[0].function_response.response
-            except Exception:
-                raise RuntimeError("Function did not return a valid function_response.response")
-
-            if verbose:
-                print(f"-> {function_response}")
-
-            messages.append(function_result)
-        else:
-            messages.append(candidate_content)
-        
-    return response
-
-def get_token_counts(response):
-    prompt_tokens = response.usage_metadata.prompt_token_count
-    response_tokens = response.usage_metadata.candidates_token_count
-    return prompt_tokens, response_tokens
-
+from functions.call_function import call_function, available_functions
 
 def main():
+    load_dotenv()
 
-    if len(sys.argv) > 1:
-        is_verbose = '--verbose' in sys.argv
-        filtered_args = [arg for arg in sys.argv[1:] if arg != '--verbose']
-        prompt_text = " ".join(filtered_args)
-        response = generate_agent_response(prompt_text)
-        prompt_tokens, response_tokens = get_token_counts(response)
+    verbose = "--verbose" in sys.argv
+    args = []
+    for arg in sys.argv[1:]:
+        if not arg.startswith("--"):
+            args.append(arg)
 
-        output = response.text
-        if response.function_calls:
-            for function_call in response.function_calls:
-             #   print(f"Calling function: {function_call.name}({function_call.args})")
-                function_result = call_function(function_call, verbose=is_verbose)
+    if not args:
+        print("AI Code Assistant")
+        print('\nUsage: python main.py "your prompt here" [--verbose]')
+        print('Example: python main.py "How do I fix the calculator?"')
+        sys.exit(1)
 
-                try:
-                    result_content = function_result.parts[0].function_response.response
-                except (AttributeError, IndexError):
-                    raise RuntimeError("Fatal: Expected function response is missing")
+    api_key = os.environ.get("GEMINI_API_KEY")
+    client = genai.Client(api_key=api_key)
 
-                if is_verbose:
-                    print(f"-> {result_content}")
-                else:
-                    print(result_content)
+    user_prompt = " ".join(args)
 
-        if is_verbose:
-            print(f"User prompt: {prompt_text}")
-            print(f"Prompt tokens: {prompt_tokens}")
-            print(f"Response tokens: {response_tokens}")
-        else:
-            print(output)
-    else:
-        # Run in interactive mode
-        print("Interactive chat mode (type 'exit' to quit)\n")
-        while True:
-            prompt_text = input("You: ")
-            if prompt_text.lower() in ["exit", "quit"]:
-                break
-            
-            response = generate_agent_response(prompt_text)
-            prompt_tokens, response_tokens = get_token_counts(response)
-            output = response.text
+    if verbose:
+        print(f"User prompt: {user_prompt}\n")
 
-            if response.function_calls:
-                for function_call in response.function_calls:
-                    print(f"Calling function: {function_call.name}({function_call.args})")
-            print(f"gemini: {output}")
-            print(f"(Prompt tokens: {prompt_tokens}, "
-                  f"Response tokens: {response_tokens})\n")
+    messages = [
+        types.Content(role="user", parts=[types.Part(text=user_prompt)]),
+    ]
+
+    generate_content(client, messages, verbose)
+
+
+def generate_content(client, messages, verbose):
+    response = client.models.generate_content(
+        model="gemini-2.0-flash-001",
+        contents=messages,
+        config=types.GenerateContentConfig(
+            tools=[available_functions], system_instruction=system_prompt
+        ),
+    )
+    if verbose:
+        print("Prompt tokens:", response.usage_metadata.prompt_token_count)
+        print("Response tokens:", response.usage_metadata.candidates_token_count)
+
+    if not response.function_calls:
+        return response.text
+
+    function_responses = []
+    for function_call_part in response.function_calls:
+        function_call_result = call_function(function_call_part, verbose)
+        if (
+            not function_call_result.parts
+            or not function_call_result.parts[0].function_response
+        ):
+            raise Exception("empty function call result")
+        if verbose:
+            print(f"-> {function_call_result.parts[0].function_response.response}")
+        function_responses.append(function_call_result.parts[0])
+
+    if not function_responses:
+        raise Exception("no function responses generated, exiting.")
 
 
 if __name__ == "__main__":
